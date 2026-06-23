@@ -68,6 +68,18 @@ async def get_tasks(
         "total_pages": total_pages
     }
 
+@task_routes.get(
+    "/getTaskByID",
+    response_model=TaskResponseDTO,
+    status_code=status.HTTP_200_OK
+)
+async def get_task_by_id(
+        task_id:UUID,
+        db:AsyncSession = Depends(get_db),
+        current_user:UserModel = Depends(get_current_user)):
+    return await TaskController.get_task_by_id(db=db,task_id=task_id,current_user=current_user)
+
+
 @task_routes.patch(
     "/updateTask",
     response_model=TaskResponseDTO,

@@ -120,7 +120,37 @@ class TaskController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to fetch tasks"
             )
-        
+
+    @staticmethod
+    async def get_task_by_id(db:AsyncSession,task_id:UUID,current_user:UserModel):
+        try:
+            logger.info("Attempting to fetch task by id.")
+            result = await db.execute(select(TaskModel)
+                                      .where(TaskModel.id==task_id,
+                                             TaskModel.user_id==current_user.id,
+                                             TaskModel.is_deleted==False))
+            task = result.scalar_one_or_none()
+            if not task:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Task not found for the provided task id."
+                )
+            return task
+        except HTTPException:
+            raise
+        except SQLAlchemyError:
+            logger.exception("Database error while fetching task.")
+            raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch task."
+            )
+        except Exception:
+            logger.exception("Something went wrong")
+            raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong"
+            )
+
     @staticmethod
     async def update_task(db:AsyncSession,current_user:UserModel,id:UUID,payload : UpdateTaskDTO):
         try:
