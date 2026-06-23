@@ -11,6 +11,9 @@ from sqlalchemy.orm import relationship
 
 from typing import TYPE_CHECKING
 
+from src.tasks.enums import TaskStatus
+from sqlalchemy import Enum as SQLEnum
+
 if TYPE_CHECKING:
     from src.user.models import UserModel
 
@@ -44,9 +47,9 @@ class TaskModel(Base):
         nullable=True
     )
 
-    is_completed: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
+    status : Mapped[TaskStatus] = mapped_column(
+        SQLEnum(TaskStatus),
+        default=TaskStatus.TODO,
         nullable=False
     )
 

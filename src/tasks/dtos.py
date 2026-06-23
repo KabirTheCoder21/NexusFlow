@@ -5,6 +5,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict,Field
 from typing import Generic, TypeVar, List
 
+from src.tasks.enums import TaskStatus
+
 T = TypeVar("T")
 
 
@@ -18,7 +20,7 @@ class TaskResponseDTO(BaseModel):
     id:UUID
     title:str
     description:str|None = None
-    is_completed:bool
+    status : TaskStatus
     created_at : datetime
     updated_at : datetime
     model_config = {
@@ -35,4 +37,9 @@ class PaginatedResponse(BaseModel, Generic[T]):
 class UpdateTaskDTO(BaseModel):
     title : str | None = Field(default=None,min_length=1,max_length=255)
     description : str | None = None
-    is_completed : bool | None = None
+
+class UpdateTaskStatusDTO(BaseModel):
+    status: TaskStatus
+
+class MessageResponseDTO(BaseModel):
+    msg:str

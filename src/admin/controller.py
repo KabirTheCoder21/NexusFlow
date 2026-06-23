@@ -12,6 +12,7 @@ from datetime import datetime, UTC
 from uuid import UUID
 
 from src.user.dtos import MessageResponseDTO
+from src.tasks.enums import TaskStatus
 
 
 
@@ -91,16 +92,9 @@ class AdminController:
 
             completed_tasks = (await db.execute(
                 select(func.count(TaskModel.id))
-                .where(TaskModel.is_completed==True,
+                .where(TaskModel.status==TaskStatus.COMPLETED,
                        TaskModel.is_deleted==False)
             )).scalar() or 0
-
-            # pending_tasks = (await db.execute(
-            #     select(func.count(TaskModel.id))
-            #     .where(TaskModel.is_completed==False,
-            #         TaskModel.is_deleted==False)
-            # )).scalar() or 0
-
             pending_tasks = total_tasks - completed_tasks
 
             return DashboardResponseDTO(

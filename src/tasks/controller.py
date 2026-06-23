@@ -7,11 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from datetime import datetime, UTC
 from src.tasks.models import TaskModel
-from src.tasks.dtos import CreateTaskDTO, UpdateTaskDTO
+from src.tasks.dtos import CreateTaskDTO, MessageResponseDTO, TaskStatus, UpdateTaskDTO, UpdateTaskStatusDTO
 from src.user.models import UserModel
+from src.tasks.constant import ALLOWED_TASK_STATUS_TRANSITIONS
 import logging
 
-import logging
 
 
 logging.basicConfig(
@@ -214,7 +214,7 @@ class TaskController:
 
                 raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Deleted task not found"
+                detail="Task not found."
                 )
             task.is_deleted = False
             task.deleted_at = None
@@ -236,3 +236,65 @@ class TaskController:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to restore task")
 
+    @staticmethod
+    async def update_status(
+        task_id:UUID,
+        task_status:TaskStatus,
+        current_user:UserModel,
+        db:AsyncSession
+    ):
+        try:
+            logger.info(f"Attempting to update task| task_id={task_id}")
+            result = await db.execute(
+                select(TaskModel)
+                .where(TaskModel.id==task_id,
+                    TaskModel.user_id==current_user.id,
+                    TaskModel.is_deleted==False))
+            task = result.scalar_one_or_none()
+
+            if not task:
+                raise HTTPException(
+                status_code=404,
+                detail="Task not found")
+            
+            if task_status==task.status:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Task already in this status.")
+            
+            if task_status not in ALLOWED_TASK_STATUS_TRANSITIONS[task.status]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid status transition")
+            old_status = task.status
+            task.status = task_status
+            
+            logger.info(f"Task status updated from {old_status} to {task_status}.")
+            await db.commit()
+
+            return MessageResponseDTO(msg="Task status updated successfully.")
+        
+        except HTTPException:
+            raise
+        except SQLAlchemyError:
+            await db.rollback()
+
+            logger.exception(
+            "Database error while updating task status.")
+
+            raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update task status."
+            )
+        except Exception:
+            await db.rollback()
+
+            logger.exception(
+            f"Error updating task status. | task_id={task_id}")
+
+            raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update task status.")
+            
+
+            

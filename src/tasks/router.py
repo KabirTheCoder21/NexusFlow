@@ -7,13 +7,17 @@ from src.tasks.dtos import (
     CreateTaskDTO,
     PaginatedResponse,
     TaskResponseDTO,
-    UpdateTaskDTO
+    UpdateTaskDTO,
+    UpdateTaskStatusDTO
 )
 from src.auth.dependencies import (get_current_user)
 from uuid import UUID
 from src.utils.db import get_db
 from src.tasks.models import TaskModel
 from src.user.models import UserModel
+from src.user.dtos import MessageResponseDTO
+from src.tasks.enums import TaskStatus
+from src.tasks.dtos import MessageResponseDTO
 
 
 task_routes = APIRouter(prefix="/tasks",
@@ -118,3 +122,19 @@ async def recover_task(
         db=db,
         current_user=current_user
     )
+
+@task_routes.patch(
+    "/update_task_status",
+    response_model=MessageResponseDTO,
+    status_code=status.HTTP_200_OK
+)
+async def update_task_status(
+    task_id:UUID,
+    payload:TaskStatus,
+    db:AsyncSession = Depends(get_db),
+    current_user:UserModel = Depends(get_current_user)
+) -> MessageResponseDTO:
+    return await TaskController.update_status(task_id=task_id,
+                                              task_status=payload,
+                                              db=db,
+                                              current_user=current_user)
