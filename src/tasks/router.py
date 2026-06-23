@@ -2,13 +2,13 @@
 from typing import Sequence
 from fastapi import APIRouter,Depends,status
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.tasks.controller import TaskController
+from src.tasks.controller import PaginatedTaskResponse, TaskController
 from src.tasks.dtos import (
     CreateTaskDTO,
-    PaginatedResponse,
     TaskResponseDTO,
     UpdateTaskDTO,
-    UpdateTaskStatusDTO
+    UpdateTaskStatusDTO,
+    TaskListFilters
 )
 from src.auth.dependencies import (get_current_user)
 from uuid import UUID
@@ -44,29 +44,19 @@ async def create_task(
 
 @task_routes.get(
     "/getAllTask",
-    response_model=PaginatedResponse[TaskResponseDTO],
+    response_model=PaginatedTaskResponse,
     status_code=status.HTTP_200_OK
 )
 async def get_tasks(
-    page:int = 1,
-    limit: int = 10,
+    filters:TaskListFilters=Depends(),
     current_user:UserModel = Depends(
         get_current_user
     ),
     db:AsyncSession = Depends(get_db)
 ):
-    data, total, page, limit, total_pages = await TaskController.get_task(db=db,
+    return await TaskController.get_task(db=db,
         current_user=current_user,
-        page=page,
-        limit=limit)
-
-    return {
-        "data": data,
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "total_pages": total_pages
-    }
+        filters=filters)
 
 @task_routes.get(
     "/getTaskByID",

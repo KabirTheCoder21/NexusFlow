@@ -1,40 +1,49 @@
 from turtle import title, update
-from fastapi import HTTPException,status
-from sqlalchemy import desc, func
+from typing import Sequence
+from fastapi import HTTPException, status
+from sqlalchemy import asc, desc, func
 from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from datetime import datetime, UTC
+
+from sqlalchemy.sql.elements import and_
 from src.tasks.models import TaskModel
-from src.tasks.dtos import CreateTaskDTO, MessageResponseDTO, TaskStatus, UpdateTaskDTO, UpdateTaskStatusDTO
+from src.tasks.dtos import (
+    CreateTaskDTO,
+    MessageResponseDTO,
+    PaginatedTaskResponse,
+    PaginationDTO,
+    TaskListFilters,
+    TaskResponseDTO,
+    TaskStatus,
+    UpdateTaskDTO,
+    UpdateTaskStatusDTO,
+)
 from src.user.models import UserModel
 from src.tasks.constant import ALLOWED_TASK_STATUS_TRANSITIONS
 import logging
 
-
-
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 
 logger = logging.getLogger(__name__)
+
 
 class TaskController:
 
     @staticmethod
     async def create_task(
-        db: AsyncSession,
-        payload: CreateTaskDTO,
-        current_user: UserModel
+        db: AsyncSession, payload: CreateTaskDTO, current_user: UserModel
     ) -> TaskModel:
 
         try:
             task = TaskModel(
                 title=payload.title.strip(),
                 description=payload.description,
-                user_id = current_user.id
+                user_id=current_user.id,
             )
 
             db.add(task)
@@ -43,10 +52,7 @@ class TaskController:
 
             await db.refresh(task)
 
-            logger.info(
-                "Task created successfully. task_id=%s",
-                task.id
-            )
+            logger.info("Task created successfully. task_id=%s", task.id)
 
             return task
 
@@ -54,86 +60,100 @@ class TaskController:
 
             await db.rollback()
 
-            logger.exception(
-                "Database error while creating task"
-            )
+            logger.exception("Database error while creating task")
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Unable to create task"
+                detail="Unable to create task",
             )
 
         except Exception:
 
             await db.rollback()
 
-            logger.exception(
-                "Unexpected error while creating task"
-            )
+            logger.exception("Unexpected error while creating task")
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Something went wrong"
+                detail="Something went wrong",
             )
-    
-        
+
     @staticmethod
-    async def get_task(db:AsyncSession,current_user: UserModel, page: int = 1, limit: int = 10):
+    async def get_task(
+        db: AsyncSession, current_user: UserModel, filters: TaskListFilters
+    ):
         try:
-            logger.info(f"Fetching tasks | page={page}, limit={limit}")
+            conditions = [
+                TaskModel.is_deleted.is_(False),
+                TaskModel.user_id == current_user.id,
+            ]
 
-            page = max(page or 1, 1)
-            limit = min(max(limit or 10, 1), 100)
+            if filters.search:
+                conditions.append(TaskModel.title.ilike(f"%{filters.search}%"))
 
-            total = (await db.execute(
-                select(func.count(TaskModel.id)).where(TaskModel.is_deleted == False,TaskModel.user_id==current_user.id)
-            )).scalar() or 0
+            if filters.status:
+                conditions.append(TaskModel.status == filters.status)
 
+            count_stmt = select(func.count(TaskModel.id)).where(and_(*conditions))
+
+            total = (await db.execute(count_stmt)).scalar_one()
             if total == 0:
-                return [], 0, 1, limit, 0
+                return {
+                    "items": [],
+                    "pagination": {
+                        "page": filters.page,
+                        "limit": filters.limit,
+                        "total": 0,
+                        "total_pages": 0,
+                    },
+                }
+            total_pages = (total + filters.limit - 1) // filters.limit
 
-            total_pages = (total + limit - 1) // limit
+            page = min(filters.page, total_pages)
+            offset = (page - 1) * filters.limit
 
-            if page > total_pages:
-                page = total_pages
-                return [], total, page, limit, total_pages
-
-            skip = (page - 1) * limit
-
+            sort_column = getattr(TaskModel, filters.sort_by, TaskModel.updated_at)
+            order_clause = (
+                asc(sort_column) if filters.sort_order == "asc" else desc(sort_column)
+            )
             stmt = (
                 select(TaskModel)
-                .where(TaskModel.is_deleted == False,
-                       TaskModel.user_id == current_user.id)
-                .order_by(desc(TaskModel.updated_at))
-                .limit(limit)
-                .offset(skip)
+                .where(and_(*conditions))
+                .order_by(order_clause)
+                .offset(offset)
+                .limit(filters.limit)
             )
-
             result = await db.execute(stmt)
             tasks = result.scalars().all()
-
-            return tasks, total, page, limit, total_pages
-
+            return PaginatedTaskResponse(
+                items=[TaskResponseDTO.model_validate(task) for task in tasks],
+                pagination=PaginationDTO(
+                    page=page, limit=filters.limit, total=total, total_pages=total_pages
+                ),
+            )
         except Exception:
             logger.exception("Error fetching tasks")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to fetch tasks"
+                detail="Failed to fetch tasks",
             )
 
     @staticmethod
-    async def get_task_by_id(db:AsyncSession,task_id:UUID,current_user:UserModel):
+    async def get_task_by_id(db: AsyncSession, task_id: UUID, current_user: UserModel):
         try:
             logger.info("Attempting to fetch task by id.")
-            result = await db.execute(select(TaskModel)
-                                      .where(TaskModel.id==task_id,
-                                             TaskModel.user_id==current_user.id,
-                                             TaskModel.is_deleted==False))
+            result = await db.execute(
+                select(TaskModel).where(
+                    TaskModel.id == task_id,
+                    TaskModel.user_id == current_user.id,
+                    TaskModel.is_deleted == False,
+                )
+            )
             task = result.scalar_one_or_none()
             if not task:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Task not found for the provided task id."
+                    detail="Task not found for the provided task id.",
                 )
             return task
         except HTTPException:
@@ -141,36 +161,41 @@ class TaskController:
         except SQLAlchemyError:
             logger.exception("Database error while fetching task.")
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to fetch task."
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to fetch task.",
             )
         except Exception:
             logger.exception("Something went wrong")
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Something went wrong"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Something went wrong",
             )
 
     @staticmethod
-    async def update_task(db:AsyncSession,current_user:UserModel,id:UUID,payload : UpdateTaskDTO):
+    async def update_task(
+        db: AsyncSession, current_user: UserModel, id: UUID, payload: UpdateTaskDTO
+    ):
         try:
-            result = await db.execute(select(TaskModel).where(TaskModel.id==id,TaskModel.user_id==current_user.id))
+            result = await db.execute(
+                select(TaskModel).where(
+                    TaskModel.id == id, TaskModel.user_id == current_user.id
+                )
+            )
             task = result.scalar_one_or_none()
             if not task:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Task not found"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
                 )
             update_data = payload.model_dump(exclude_unset=True)
             if not update_data:
                 raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No fields provided for update"
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No fields provided for update",
                 )
-            
-            for key,value in update_data.items():
-                setattr(task,key,value)
-            
+
+            for key, value in update_data.items():
+                setattr(task, key, value)
+
             await db.commit()
             await db.refresh(task)
 
@@ -183,31 +208,26 @@ class TaskController:
             logger.exception("Error while updating task")
 
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update task"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update task",
             )
 
     @staticmethod
-    async def delete_task(
-        task_id:UUID,
-        current_user:UserModel,
-        db:AsyncSession
-    ):
+    async def delete_task(task_id: UUID, current_user: UserModel, db: AsyncSession):
         try:
             logger.info(f"Deleting task | task_id={task_id}")
             result = await db.execute(
                 select(TaskModel).where(
                     TaskModel.id == task_id,
-                    TaskModel.user_id==current_user.id,
-                    TaskModel.is_deleted==False
+                    TaskModel.user_id == current_user.id,
+                    TaskModel.is_deleted == False,
                 )
             )
             task = result.scalar_one_or_none()
 
             if not task:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Task not found"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
                 )
             task.is_deleted = True
             task.deleted_at = datetime.now(UTC)
@@ -220,111 +240,100 @@ class TaskController:
         except Exception:
             logger.exception(f"Error deleting task | task_id={task_id}")
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete task",
             )
-        
+
     @staticmethod
-    async def restore_task(
-        task_id:UUID,
-        current_user:UserModel,
-        db:AsyncSession
-    ):
+    async def restore_task(task_id: UUID, current_user: UserModel, db: AsyncSession):
         try:
             logger.info(f"Restoring task | task_id={task_id}")
-            result = await db.execute(select(TaskModel).where(
-                TaskModel.id==task_id,
-                TaskModel.user_id==current_user.id,
-                TaskModel.is_deleted==True))
+            result = await db.execute(
+                select(TaskModel).where(
+                    TaskModel.id == task_id,
+                    TaskModel.user_id == current_user.id,
+                    TaskModel.is_deleted == True,
+                )
+            )
             task = result.scalar_one_or_none()
             if not task:
-                logger.warning(
-                f"Restore failed | task not found | task_id={task_id}"
-                )
+                logger.warning(f"Restore failed | task not found | task_id={task_id}")
 
                 raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Task not found."
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Task not found."
                 )
             task.is_deleted = False
             task.deleted_at = None
 
             await db.commit()
             await db.refresh(task)
-            logger.info(
-            f"Task restored successfully | task_id={task_id}"
-            )
+            logger.info(f"Task restored successfully | task_id={task_id}")
 
             return task
         except HTTPException:
             raise
         except Exception:
-            logger.exception(
-            f"Error restoring task | task_id={task_id}")
+            logger.exception(f"Error restoring task | task_id={task_id}")
 
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to restore task")
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to restore task",
+            )
 
     @staticmethod
     async def update_status(
-        task_id:UUID,
-        task_status:TaskStatus,
-        current_user:UserModel,
-        db:AsyncSession
+        task_id: UUID,
+        task_status: TaskStatus,
+        current_user: UserModel,
+        db: AsyncSession,
     ):
         try:
             logger.info(f"Attempting to update task| task_id={task_id}")
             result = await db.execute(
-                select(TaskModel)
-                .where(TaskModel.id==task_id,
-                    TaskModel.user_id==current_user.id,
-                    TaskModel.is_deleted==False))
+                select(TaskModel).where(
+                    TaskModel.id == task_id,
+                    TaskModel.user_id == current_user.id,
+                    TaskModel.is_deleted == False,
+                )
+            )
             task = result.scalar_one_or_none()
 
             if not task:
-                raise HTTPException(
-                status_code=404,
-                detail="Task not found")
-            
-            if task_status==task.status:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            if task_status == task.status:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Task already in this status.")
-            
+                    detail="Task already in this status.",
+                )
+
             if task_status not in ALLOWED_TASK_STATUS_TRANSITIONS[task.status]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid status transition")
+                raise HTTPException(status_code=400, detail="Invalid status transition")
             old_status = task.status
             task.status = task_status
-            
+
             logger.info(f"Task status updated from {old_status} to {task_status}.")
             await db.commit()
 
             return MessageResponseDTO(msg="Task status updated successfully.")
-        
+
         except HTTPException:
             raise
         except SQLAlchemyError:
             await db.rollback()
 
-            logger.exception(
-            "Database error while updating task status.")
+            logger.exception("Database error while updating task status.")
 
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to update task status."
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to update task status.",
             )
         except Exception:
             await db.rollback()
 
-            logger.exception(
-            f"Error updating task status. | task_id={task_id}")
+            logger.exception(f"Error updating task status. | task_id={task_id}")
 
             raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update task status.")
-            
-
-            
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update task status.",
+            )
