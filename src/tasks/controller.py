@@ -1,14 +1,14 @@
 from turtle import title, update
 from typing import Sequence
 from fastapi import HTTPException, status
-from sqlalchemy import asc, desc, func
+from sqlalchemy import asc, desc, func, literal_column
 from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from datetime import datetime, UTC
 
-from sqlalchemy.sql.elements import and_
+from sqlalchemy.sql.elements import and_, or_
 from src.tasks.models import TaskModel
 from src.tasks.dtos import (
     CreateTaskDTO,
@@ -83,13 +83,62 @@ class TaskController:
         db: AsyncSession, current_user: UserModel, filters: TaskListFilters
     ):
         try:
+            logger.info(
+                f"Fetching tasks | "
+                f"user_id={current_user.id} | "
+                f"page={filters.page} | "
+                f"limit={filters.limit} | "
+                f"search={filters.search} | "
+                f"status={filters.status}"
+            )
             conditions = [
                 TaskModel.is_deleted.is_(False),
                 TaskModel.user_id == current_user.id,
             ]
 
+            search_vector = None
+            blended_score = None
+
             if filters.search:
-                conditions.append(TaskModel.title.ilike(f"%{filters.search}%"))
+                # conditions.append(TaskModel.title.ilike(f"%{filters.search}%"))
+                search_query = filters.search.strip()
+                ts_query = func.websearch_to_tsquery("english", search_query)
+                search_vector = func.setweight(
+                    func.to_tsvector("english", func.coalesce(TaskModel.title, "")),
+                    literal_column("'A'"),
+                ).op("||")(
+                    func.setweight(
+                        func.to_tsvector(
+                            "english", func.coalesce(TaskModel.description, "")
+                        ),
+                        literal_column("'B'"),
+                    )
+                )
+                title_sim = func.similarity(TaskModel.title, search_query)
+
+                desc_sim = func.similarity(
+                    func.coalesce(TaskModel.description, ""), search_query
+                )
+
+                fts_rank = func.ts_rank_cd(search_vector, ts_query)
+                blended_score = (fts_rank * 2.0) + (title_sim * 1.5) + (desc_sim * 0.5)
+                conditions.append(
+                    or_(
+                        search_vector.op("@@")(ts_query),
+                        func.word_similarity(search_query, TaskModel.title) > 0.35,
+                        func.word_similarity(
+                            search_query, func.coalesce(TaskModel.description, "")
+                        )
+                        > 0.40,
+                    )
+                )
+
+                title_sim = func.similarity(TaskModel.title, search_query)
+
+                desc_sim = func.similarity(
+                    func.coalesce(TaskModel.description, ""), search_query
+                )
+                fts_rank = func.ts_rank_cd(search_vector, ts_query)
 
             if filters.status:
                 conditions.append(TaskModel.status == filters.status)
@@ -112,19 +161,46 @@ class TaskController:
             page = min(filters.page, total_pages)
             offset = (page - 1) * filters.limit
 
-            sort_column = getattr(TaskModel, filters.sort_by, TaskModel.updated_at)
-            order_clause = (
-                asc(sort_column) if filters.sort_order == "asc" else desc(sort_column)
-            )
+            # sort_column = getattr(TaskModel, filters.sort_by, TaskModel.updated_at)
+            SORT_MAPPING = {
+                "created_at": TaskModel.created_at,
+                "updated_at": TaskModel.updated_at,
+                "title": TaskModel.title,
+            }
+
+            sort_column = SORT_MAPPING.get(filters.sort_by, TaskModel.updated_at)
+
+            if filters.search and blended_score is not None:
+
+                order_clause = [blended_score.desc(), TaskModel.created_at.desc()]
+
+            else:
+
+                order_clause = [
+                    (
+                        asc(sort_column)
+                        if filters.sort_order == "asc"
+                        else desc(sort_column)
+                    )
+                ]
+
             stmt = (
                 select(TaskModel)
                 .where(and_(*conditions))
-                .order_by(order_clause)
+                .order_by(*order_clause)
                 .offset(offset)
                 .limit(filters.limit)
             )
+
             result = await db.execute(stmt)
             tasks = result.scalars().all()
+            logger.info(
+                f"Tasks fetched successfully | "
+                f"user_id={current_user.id} | "
+                f"returned={len(tasks)} | "
+                f"total={total}"
+            )
+
             return PaginatedTaskResponse(
                 items=[TaskResponseDTO.model_validate(task) for task in tasks],
                 pagination=PaginationDTO(
@@ -132,7 +208,7 @@ class TaskController:
                 ),
             )
         except Exception:
-            logger.exception("Error fetching tasks")
+            logger.exception(f"Failed fetching tasks | " f"user_id={current_user.id}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to fetch tasks",
@@ -170,6 +246,70 @@ class TaskController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Something went wrong",
             )
+
+    #     @staticmethod
+    #     async def search_task(
+    #     query: str,
+    #     db: AsyncSession,
+    #     current_user: UserModel,
+    #     limit: int = 20
+    # ):
+    #         query = query.strip()
+    #         if not query:
+    #             return []
+
+    #     # 1. Generate similarities and ts_query
+    #         ts_query = func.websearch_to_tsquery("english", query)
+    #         title_sim = func.similarity(TaskModel.title, query)
+    #         desc_sim = func.similarity(func.coalesce(TaskModel.description, ""), query)
+
+    #     # 2. Re-use the vector generation (Note: See DB optimization below)
+    #         search_vector = (
+    #         func.setweight(func.to_tsvector("english", func.coalesce(TaskModel.title, "")), literal_column("'A'"))
+    #         .op("||")(
+    #             func.setweight(func.to_tsvector("english", func.coalesce(TaskModel.description, "")), literal_column("'B'"))
+    #         )
+    #     )
+
+    #     # 3. Calculate FTS Rank
+    #         fts_rank = func.ts_rank_cd(search_vector, ts_query)
+
+    #     # 4. Create a Blended "Google-Like" Score
+    #     # Combines Exact matches (FTS) + Typo/Partial matches (Trigram)
+    #     # Titles are given a heavy multiplier to ensure title matches float to the top
+    #         blended_score = (fts_rank * 2.0) + (title_sim * 1.5) + (desc_sim * 0.5)
+
+    #         stmt = (
+    #         select(TaskModel)
+    #         .where(
+    #             TaskModel.user_id == current_user.id,
+    #             TaskModel.is_deleted == False,
+    #             or_(
+
+    #                 search_vector.op("@@")(ts_query),
+
+    #                 # FIX 1: Use word_similarity
+    #                 # FIX 2: query MUST be the first argument
+    #                 func.word_similarity(
+    #                     query,
+    #                     TaskModel.title
+    #                 ) > 0.35,
+
+    #                 func.word_similarity(
+    #                     query,
+    #                     func.coalesce(TaskModel.description, "")
+    #                 ) > 0.40,
+    #             )
+    #         )
+    #         .order_by(
+    #             blended_score.desc(),
+    #             TaskModel.created_at.desc()
+    #         )
+    #         .limit(limit)
+    #     )
+
+    #         result = await db.execute(stmt)
+    #         return result.scalars().all()
 
     @staticmethod
     async def update_task(
