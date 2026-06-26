@@ -1,9 +1,10 @@
 import uuid
+from sqlalchemy import UUID
 from datetime import datetime,timezone
 
 from sqlalchemy import Boolean, DateTime, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import TSVECTOR
 
 from src.utils.db import Base
 from sqlalchemy import ForeignKey
@@ -20,13 +21,13 @@ if TYPE_CHECKING:
 class TaskModel(Base):
     __tablename__ = "user_tasks"
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id",ondelete="CASCADE"),
         nullable=False,
         index=True
@@ -44,6 +45,11 @@ class TaskModel(Base):
 
     description: Mapped[str | None] = mapped_column(
         Text,
+        nullable=True
+    )
+    
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
         nullable=True
     )
 

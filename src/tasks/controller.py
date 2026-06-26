@@ -96,35 +96,36 @@ class TaskController:
                 TaskModel.user_id == current_user.id,
             ]
 
-            search_vector = None
+            # search_vector = None
             blended_score = None
 
             if filters.search:
                 # conditions.append(TaskModel.title.ilike(f"%{filters.search}%"))
                 search_query = filters.search.strip()
                 ts_query = func.websearch_to_tsquery("english", search_query)
-                search_vector = func.setweight(
-                    func.to_tsvector("english", func.coalesce(TaskModel.title, "")),
-                    literal_column("'A'"),
-                ).op("||")(
-                    func.setweight(
-                        func.to_tsvector(
-                            "english", func.coalesce(TaskModel.description, "")
-                        ),
-                        literal_column("'B'"),
-                    )
-                )
+                # search_vector = func.setweight(
+                #     func.to_tsvector("english", func.coalesce(TaskModel.title, "")),
+                #     literal_column("'A'"),
+                # ).op("||")(
+                #     func.setweight(
+                #         func.to_tsvector(
+                #             "english", func.coalesce(TaskModel.description, "")
+                #         ),
+                #         literal_column("'B'"),
+                #     )
+                # )
                 title_sim = func.similarity(TaskModel.title, search_query)
 
                 desc_sim = func.similarity(
                     func.coalesce(TaskModel.description, ""), search_query
                 )
 
-                fts_rank = func.ts_rank_cd(search_vector, ts_query)
+                fts_rank = func.ts_rank_cd(TaskModel.search_vector, ts_query)
                 blended_score = (fts_rank * 2.0) + (title_sim * 1.5) + (desc_sim * 0.5)
                 conditions.append(
                     or_(
-                        search_vector.op("@@")(ts_query),
+                        # search_vector.op("@@")(ts_query),
+                        TaskModel.search_vector.op("@@")(ts_query),
                         func.word_similarity(search_query, TaskModel.title) > 0.35,
                         func.word_similarity(
                             search_query, func.coalesce(TaskModel.description, "")
@@ -132,13 +133,6 @@ class TaskController:
                         > 0.40,
                     )
                 )
-
-                title_sim = func.similarity(TaskModel.title, search_query)
-
-                desc_sim = func.similarity(
-                    func.coalesce(TaskModel.description, ""), search_query
-                )
-                fts_rank = func.ts_rank_cd(search_vector, ts_query)
 
             if filters.status:
                 conditions.append(TaskModel.status == filters.status)
