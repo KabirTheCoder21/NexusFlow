@@ -9,6 +9,7 @@ from uuid import UUID
 from datetime import datetime, UTC
 
 from sqlalchemy.sql.elements import and_, or_
+from src.auth.dtos import CurrentUser
 from src.tasks.models import TaskModel
 from src.tasks.dtos import (
     CreateTaskDTO,
@@ -36,14 +37,14 @@ class TaskController:
 
     @staticmethod
     async def create_task(
-        db: AsyncSession, payload: CreateTaskDTO, current_user: UserModel
+        db: AsyncSession, payload: CreateTaskDTO, current_user: CurrentUser
     ) -> TaskModel:
 
         try:
             task = TaskModel(
                 title=payload.title.strip(),
                 description=payload.description,
-                user_id=current_user.id,
+                user_id=current_user.user.id,
             )
 
             db.add(task)
@@ -80,12 +81,12 @@ class TaskController:
 
     @staticmethod
     async def get_task(
-        db: AsyncSession, current_user: UserModel, filters: TaskListFilters
+        db: AsyncSession, current_user: CurrentUser, filters: TaskListFilters
     ):
         try:
             logger.info(
                 f"Fetching tasks | "
-                f"user_id={current_user.id} | "
+                f"user_id={current_user.user.id} | "
                 f"page={filters.page} | "
                 f"limit={filters.limit} | "
                 f"search={filters.search} | "
@@ -93,7 +94,7 @@ class TaskController:
             )
             conditions = [
                 TaskModel.is_deleted.is_(False),
-                TaskModel.user_id == current_user.id,
+                TaskModel.user_id == current_user.user.id,
             ]
 
             # search_vector = None
@@ -190,7 +191,7 @@ class TaskController:
             tasks = result.scalars().all()
             logger.info(
                 f"Tasks fetched successfully | "
-                f"user_id={current_user.id} | "
+                f"user_id={current_user.user.id} | "
                 f"returned={len(tasks)} | "
                 f"total={total}"
             )
@@ -202,20 +203,20 @@ class TaskController:
                 ),
             )
         except Exception:
-            logger.exception(f"Failed fetching tasks | " f"user_id={current_user.id}")
+            logger.exception(f"Failed fetching tasks | " f"user_id={current_user.user.id}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to fetch tasks",
             )
 
     @staticmethod
-    async def get_task_by_id(db: AsyncSession, task_id: UUID, current_user: UserModel):
+    async def get_task_by_id(db: AsyncSession, task_id: UUID, current_user: CurrentUser):
         try:
             logger.info("Attempting to fetch task by id.")
             result = await db.execute(
                 select(TaskModel).where(
                     TaskModel.id == task_id,
-                    TaskModel.user_id == current_user.id,
+                    TaskModel.user_id == current_user.user.id,
                     TaskModel.is_deleted == False,
                 )
             )
@@ -307,12 +308,12 @@ class TaskController:
 
     @staticmethod
     async def update_task(
-        db: AsyncSession, current_user: UserModel, id: UUID, payload: UpdateTaskDTO
+        db: AsyncSession, current_user: CurrentUser, id: UUID, payload: UpdateTaskDTO
     ):
         try:
             result = await db.execute(
                 select(TaskModel).where(
-                    TaskModel.id == id, TaskModel.user_id == current_user.id
+                    TaskModel.id == id, TaskModel.user_id == current_user.user.id
                 )
             )
             task = result.scalar_one_or_none()
@@ -347,13 +348,13 @@ class TaskController:
             )
 
     @staticmethod
-    async def delete_task(task_id: UUID, current_user: UserModel, db: AsyncSession):
+    async def delete_task(task_id: UUID, current_user: CurrentUser, db: AsyncSession):
         try:
             logger.info(f"Deleting task | task_id={task_id}")
             result = await db.execute(
                 select(TaskModel).where(
                     TaskModel.id == task_id,
-                    TaskModel.user_id == current_user.id,
+                    TaskModel.user_id == current_user.user.id,
                     TaskModel.is_deleted == False,
                 )
             )
@@ -379,13 +380,13 @@ class TaskController:
             )
 
     @staticmethod
-    async def restore_task(task_id: UUID, current_user: UserModel, db: AsyncSession):
+    async def restore_task(task_id: UUID, current_user: CurrentUser, db: AsyncSession):
         try:
             logger.info(f"Restoring task | task_id={task_id}")
             result = await db.execute(
                 select(TaskModel).where(
                     TaskModel.id == task_id,
-                    TaskModel.user_id == current_user.id,
+                    TaskModel.user_id == current_user.user.id,
                     TaskModel.is_deleted == True,
                 )
             )
@@ -418,7 +419,7 @@ class TaskController:
     async def update_status(
         task_id: UUID,
         task_status: TaskStatus,
-        current_user: UserModel,
+        current_user: CurrentUser,
         db: AsyncSession,
     ):
         try:
@@ -426,7 +427,7 @@ class TaskController:
             result = await db.execute(
                 select(TaskModel).where(
                     TaskModel.id == task_id,
-                    TaskModel.user_id == current_user.id,
+                    TaskModel.user_id == current_user.user.id,
                     TaskModel.is_deleted == False,
                 )
             )

@@ -1,5 +1,9 @@
+from dataclasses import dataclass
+
 from pydantic import BaseModel
 
+from src.auth.models import UserSessionModel
+from src.user.models import UserModel
 
 class TokenResponseDTO(BaseModel):
     access_token: str
@@ -9,3 +13,7 @@ class TokenResponseDTO(BaseModel):
 
 class RefreshTokenDTO(BaseModel):
     refresh_token: str
+
+class CurrentUser:
+    user: UserModel
+    session: UserSessionModel

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dtos import RefreshTokenDTO, TokenResponseDTO
+from src.auth.dtos import CurrentUser, RefreshTokenDTO, TokenResponseDTO
 from src.utils.db import get_db
 
 from src.user.controller import UserController
@@ -50,7 +50,7 @@ async def refresh_token(payload: RefreshTokenDTO, db: AsyncSession = Depends(get
 @user_routes.get(
     "/profile", response_model=UserResponseDTO, status_code=status.HTTP_200_OK
 )
-async def get_profile(current_user: UserModel = Depends(get_current_user)):
+async def get_profile(current_user: CurrentUser = Depends(get_current_user)):
     return await UserController.get_profile(current_user=current_user)
 
 
@@ -60,7 +60,7 @@ async def get_profile(current_user: UserModel = Depends(get_current_user)):
 async def update_profile(
     payload: UpdateUserDTO,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     return await UserController.update_profile(
         db=db, payload=payload, current_user=current_user
@@ -75,9 +75,24 @@ async def update_profile(
 async def change_password(
     payload: ChangePasswordDTO,
     db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
 
     return await UserController.change_password(
         db=db, payload=payload, current_user=current_user
+    )
+
+
+@user_routes.post(
+        "/logout",
+        response_model=MessageResponseDTO,
+        status_code=status.HTTP_200_OK,
+)
+async def logout(
+    current: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await UserController.logout(
+        db=db,
+        current_user=current,
     )

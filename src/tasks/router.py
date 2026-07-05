@@ -2,6 +2,7 @@
 from typing import Sequence
 from fastapi import APIRouter,Depends,status
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.auth.dtos import CurrentUser
 from src.tasks.controller import PaginatedTaskResponse, TaskController
 from src.tasks.dtos import (
     CreateTaskDTO,
@@ -32,7 +33,7 @@ task_routes = APIRouter(prefix="/tasks",
 async def create_task(
     payload: CreateTaskDTO,
     db: AsyncSession = Depends(get_db),
-    current_user:UserModel = Depends(
+    current_user:CurrentUser = Depends(
         get_current_user
     )
 ) -> TaskModel:
@@ -49,7 +50,7 @@ async def create_task(
 )
 async def get_tasks(
     filters:TaskListFilters=Depends(),
-    current_user:UserModel = Depends(
+    current_user:CurrentUser = Depends(
         get_current_user
     ),
     db:AsyncSession = Depends(get_db)
@@ -66,7 +67,7 @@ async def get_tasks(
 async def get_task_by_id(
         task_id:UUID,
         db:AsyncSession = Depends(get_db),
-        current_user:UserModel = Depends(get_current_user)):
+        current_user:CurrentUser = Depends(get_current_user)):
     return await TaskController.get_task_by_id(db=db,task_id=task_id,current_user=current_user)
 
 
@@ -78,7 +79,7 @@ async def get_task_by_id(
 async def update_task(
     task_id:UUID,
     payload:UpdateTaskDTO,
-    current_user:UserModel = Depends(
+    current_user:CurrentUser = Depends(
         get_current_user
     ),
     db:AsyncSession = Depends(get_db)
@@ -96,7 +97,7 @@ async def update_task(
 )
 async def delete_task(
     task_id:UUID,
-    current_user:UserModel = Depends(
+    current_user:CurrentUser = Depends(
         get_current_user
     ),
     db:AsyncSession = Depends(get_db)
@@ -114,7 +115,7 @@ async def delete_task(
 )
 async def recover_task(
     task_id:UUID,
-    current_user:UserModel = Depends(
+    current_user:CurrentUser = Depends(
         get_current_user
     ),
     db:AsyncSession = Depends(get_db)
@@ -134,7 +135,7 @@ async def update_task_status(
     task_id:UUID,
     payload:TaskStatus,
     db:AsyncSession = Depends(get_db),
-    current_user:UserModel = Depends(get_current_user)
+    current_user:CurrentUser = Depends(get_current_user)
 ) -> MessageResponseDTO:
     return await TaskController.update_status(task_id=task_id,
                                               task_status=payload,

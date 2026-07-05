@@ -5,12 +5,13 @@ from sqlalchemy import String, Boolean, DateTime, func, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
+from src.auth.models import UserSessionModel
 from src.utils.db import Base
 from src.user.enums import UserRole
 from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from src.tasks.models import TaskModel
+    from src.auth.models import UserSessionModel
 
 
 class UserModel(Base):
@@ -19,6 +20,10 @@ class UserModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
     )
+    
+    sessions: Mapped[list["UserSessionModel"]] = relationship(
+    back_populates="user",
+    cascade="all, delete-orphan",)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 

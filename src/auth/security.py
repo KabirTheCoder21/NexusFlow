@@ -1,3 +1,4 @@
+import hashlib
 from warnings import deprecated
 from passlib.context import CryptContext
 
@@ -10,3 +11,8 @@ def hash_password(password: str):
 
 def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(
+        token.encode()
+    ).hexdigest()
