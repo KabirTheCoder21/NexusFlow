@@ -74,3 +74,4 @@ Thumbs.db
 # =========================
 temp.py
 *.tmp
+backup.sql

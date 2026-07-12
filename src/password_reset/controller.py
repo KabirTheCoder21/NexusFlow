@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.email.settings import email_settings
 from src.email.service import EmailService
 from src.password_reset.service import PasswordResetService
+from src.password_reset.worker import send_password_reset_email
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,14 @@ class PasswordResetController:
                 f"?token={raw_token}"
             )
 
-            await EmailService.send_password_reset_email(
-                email=email,
+            # await EmailService.send_password_reset_email(
+            #     email=email,
+            #     reset_link=reset_link,
+            #     raw_token=raw_token
+            # )
+            send_password_reset_email.delay(email=email,
                 reset_link=reset_link,
-                raw_token=raw_token
-            )
+                raw_token=raw_token,)
             
             logger.info(
                 "Password reset email successfully sent to %s",
