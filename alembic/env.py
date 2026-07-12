@@ -7,6 +7,7 @@ from alembic import context
 from src.utils.db import Base
 from src.tasks.models import TaskModel
 from src.user.models import UserModel
+from src.password_reset.models import PasswordResetTokenModel
 from src.utils.settings import settings
 
 # this is the Alembic Config object, which provides

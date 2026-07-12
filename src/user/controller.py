@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 import logging
 
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,12 @@ from src.auth.dependencies import CurrentUser
 from src.auth.dtos import RefreshTokenDTO, TokenResponseDTO
 from src.auth.session_repository import SessionRepository
 from src.user.models import UserModel
-from src.user.dtos import ChangePasswordDTO, CreateUserDTO, MessageResponseDTO, UserResponseDTO
+from src.user.dtos import (
+    ChangePasswordDTO,
+    CreateUserDTO,
+    MessageResponseDTO,
+    UserResponseDTO,
+)
 from src.auth.security import hash_password, hash_refresh_token, verify_password
 from src.auth.jwt_config import (
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -267,7 +272,7 @@ class UserController:
 
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
+
     @staticmethod
     async def get_profile(current_user: CurrentUser):
         try:
@@ -367,7 +372,11 @@ class UserController:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="New password must be different from old password",
                 )
-
+            await db.execute(
+                update(UserSessionModel)
+                .where(UserSessionModel.user_id == current_user.user.id)
+                .values(is_revoked=True)
+            )
             current_user.user.password_hash = hash_password(payload.new_password)
 
             await db.commit()
@@ -376,9 +385,8 @@ class UserController:
                 "Password changed successfully | user_id=%s", current_user.user.id
             )
 
-            await db.refresh(current_user.user)
-
             return {"message": "Password changed successfully"}
+
         except HTTPException:
             raise
         except SQLAlchemyError:
@@ -404,10 +412,17 @@ class UserController:
             )
     
     @staticmethod
-    async def logout(
+    async def update_password(
         db:AsyncSession,
-        current_user:CurrentUser
+        user:UserModel,
+        password_hash:str
     ):
+        user.password_hash=password_hash
+        await db.flush()
+        return user
+
+    @staticmethod
+    async def logout(db: AsyncSession, current_user: CurrentUser):
         """
         Revoke the current authenticated session.
         Logout is idempotent.
@@ -433,8 +448,7 @@ class UserController:
             )
             await db.commit()
             logger.info(
-                "Session revoked successfully | "
-                "user_id=%s session_id=%s",
+                "Session revoked successfully | " "user_id=%s session_id=%s",
                 current_user.user.id,
                 current_user.session.id,
             )
@@ -451,8 +465,7 @@ class UserController:
             await db.rollback()
 
             logger.exception(
-                "Database error while logging out | "
-                "user_id=%s session_id=%s",
+                "Database error while logging out | " "user_id=%s session_id=%s",
                 current_user.user.id,
                 current_user.session.id,
             )
@@ -465,8 +478,7 @@ class UserController:
             await db.rollback()
 
             logger.exception(
-                "Unexpected error while logging out | "
-                "user_id=%s session_id=%s",
+                "Unexpected error while logging out | " "user_id=%s session_id=%s",
                 current_user.user.id,
                 current_user.session.id,
             )
@@ -475,9 +487,47 @@ class UserController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Something went wrong.",
             )
+
+    @staticmethod
+    async def get_user_by_email(
+        db:AsyncSession,
+        email:str
+    ):
+       try:
+           result = await db.execute(
+               select(UserModel).where(UserModel.email==email)
+           ) 
+           return result.scalar_one_or_none()
+       except SQLAlchemyError:
+        logger.exception(
+            "Database error while fetching user | email=%s",
+            email,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch user",
+        )
+    
+    @staticmethod
+    async def update_password(
+        db:AsyncSession,
+        user:UserModel,
+        password_hash:str
+    ):
+        user.password_hash = password_hash
+        await db.flush()
+        return user
+
+    @staticmethod
+    async def get_by_id(
+        db:AsyncSession,
+        user_id:UUID
+    ):
+        return await db.get(
+            UserModel,
+            user_id
+        )
         
-
-
-
-
-        
+           
+       

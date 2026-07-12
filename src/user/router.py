@@ -16,6 +16,8 @@ from src.user.dtos import (
 )
 from src.user.models import UserModel
 from src.tasks.router import get_current_user
+from src.password_reset.controller import PasswordResetController
+from src.password_reset.dtos import ForgetPasswordDTO, ResetPasswordDTO
 
 user_routes = APIRouter(prefix="/users", tags=["Users"])
 
@@ -82,6 +84,28 @@ async def change_password(
         db=db, payload=payload, current_user=current_user
     )
 
+
+@user_routes.post("/forgot-password")
+async def forgot_password(
+    request:ForgetPasswordDTO,
+    db:AsyncSession=Depends(get_db)
+):
+    return await PasswordResetController.forgot_password(
+        db=db,
+        email=request.email,
+    )
+
+@user_routes.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordDTO,
+    db: AsyncSession = Depends(get_db),
+):
+    return await PasswordResetController.reset_password(
+        db=db,
+        token=request.token,
+        new_password=request.new_password,
+    )
+    
 
 @user_routes.post(
         "/logout",

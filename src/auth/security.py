@@ -1,5 +1,5 @@
 import hashlib
-from warnings import deprecated
+import secrets
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -16,3 +16,15 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(
         token.encode()
     ).hexdigest()
+
+def generate_password_reset_token():
+    """
+    Generate a cryptographically secure password reset token.
+    """
+    return secrets.token_urlsafe(32)
+
+def hash_password_reset_token(token:str):
+    """
+    Hash password reset token before storing.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()

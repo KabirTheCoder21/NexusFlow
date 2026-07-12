@@ -1,4 +1,3 @@
-from turtle import title, update
 from typing import Sequence
 from fastapi import HTTPException, status
 from sqlalchemy import asc, desc, func, literal_column
