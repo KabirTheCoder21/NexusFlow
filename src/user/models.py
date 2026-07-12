@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.tasks.models import TaskModel
     from src.auth.models import UserSessionModel
+    from src.password_reset.models import PasswordResetTokenModel
 
 
 class UserModel(Base):
@@ -35,10 +36,16 @@ class UserModel(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
 
+    password_reset_tokens: Mapped[list["PasswordResetTokenModel"]] = relationship(
+    back_populates="user",
+    cascade="all, delete-orphan")
+
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    
     role: Mapped[UserRole] = mapped_column(
         SQLEnum(UserRole), default=UserRole.USER, nullable=False
     )
+    
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

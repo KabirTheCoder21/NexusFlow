@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -72,6 +72,21 @@ class SessionRepository:
         await db.flush()
 
         return session
+
+    @staticmethod
+    async def revoke_all_sessions(db:AsyncSession,
+                                  user_id:UUID):
+        await db.execute(
+            update(UserSessionModel)
+            .where(
+                UserSessionModel.user_id==user_id,
+                UserSessionModel.is_revoked.is_(False)
+            )
+            .values(
+                is_revoked = True
+            )
+        )
+        await db.flush()
 
     @staticmethod
     async def revoke_session(
