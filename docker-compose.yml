@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-
   api:
     build: .
     container_name: nexusflow-api
@@ -12,79 +11,13 @@ services:
     env_file:
       - .env
 
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-      redis:
-        condition: service_started
-
     restart: unless-stopped
-
-    volumes:
-      - .:/app
 
     command: >
       uvicorn main:app
       --host 0.0.0.0
       --port 8000
-      --reload
 
-    networks:
-      - nexusflow-network
-
-  postgres:
-
-    image: postgres:16
-
-    container_name: nexusflow-postgres
-
-    restart: unless-stopped
-
-    environment:
-
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Kabir@2001
-      POSTGRES_DB: nexusflow
-
-    ports:
-
-      - "5432:5432"
-
-    volumes:
-
-      - postgres_data:/var/lib/postgresql/data
-
-    healthcheck:
-
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-
-      interval: 10s
-
-      timeout: 5s
-
-      retries: 5
-
-    networks:
-
-      - nexusflow-network
-
-  redis:
-
-    image: redis:7-alpine
-
-    container_name: nexusflow-redis
-
-    restart: unless-stopped
-
-    ports:
-
-      - "6379:6379"
-
-    networks:
-
-      - nexusflow-network
-    
   celery:
     build: .
     container_name: nexusflow-celery
@@ -92,22 +25,7 @@ services:
     env_file:
       - .env
 
-    depends_on:
-      - redis
+    restart: unless-stopped
 
     command: >
       celery -A src.celery_app.celery_app worker --loglevel=info
-
-    volumes:
-      - .:/app
-
-    networks:
-      - nexusflow-network
-
-volumes:
-
-  postgres_data:
-
-networks:
-
-  nexusflow-network:
