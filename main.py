@@ -21,3 +21,7 @@ app = FastAPI(title="Just touching the cloud", lifespan=lifespan)
 app.include_router(task_routes)
 app.include_router(user_routes)
 app.include_router(admin_routes)
+
+@app.get("/")
+def home():
+    return {"message": "API is running"}
