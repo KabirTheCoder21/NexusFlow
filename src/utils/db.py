@@ -16,6 +16,7 @@ engine = create_async_engine(
     settings.DB_CONNECTION,
     echo=False,
     pool_pre_ping=True,
+    pool_recycle=300,
 )
 
 SessionLocal = async_sessionmaker(
